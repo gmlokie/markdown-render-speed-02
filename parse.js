@@ -179,23 +179,35 @@ function unescapePunct(s) {
   return _ANY_PUNCT.test(s) ? s.replace(_ANY_PUNCT, '$1') : s;
 }
 // Table cells: escape-aware pipe split, trim, pad/truncate to count.
+// Single manual pass: a `|` preceded by an odd run of backslashes is
+// escaped (it stays in the cell); otherwise it separates cells.
 function splitCells(row, count) {
-  const r = row.replace(/\|/g, (m, off, str) => {
-    let escaped = false;
-    let cur = off;
-    while (--cur >= 0 && str[cur] === '\\') escaped = !escaped;
-    return escaped ? '|' : ' |';
-  });
-  const cells = r.split(/ \|/);
+  const cells = [];
+  let start = 0;
   let i = 0;
-  if (!cells[0].trim()) cells.shift();
-  if (cells.length > 0 && !cells[cells.length - 1].trim()) cells.pop();
-  if (count) {
-    if (cells.length > count) cells.splice(count);
-    else while (cells.length < count) cells.push('');
+  const n = row.length;
+  while (i < n) {
+    const ch = row[i];
+    if (ch === '\\') { i += 2; continue; }
+    if (ch === '|') {
+      cells.push(row.slice(start, i));
+      start = i + 1;
+    }
+    i++;
   }
-  for (; i < cells.length; i++) cells[i] = cells[i].trim().replace(/\\\|/g, '|');
-  return cells;
+  cells.push(row.slice(start));
+  // A leading/trailing `|` leaves one empty cell at each end; drop it.
+  let a = 0;
+  let b = cells.length;
+  if (b > 0 && cells[0].trim() === '') a = 1;
+  if (b > a && cells[b - 1].trim() === '') b--;
+  const out = [];
+  for (let k = a; k < b; k++) out.push(cells[k].trim().replace(/\\\|/g, '|'));
+  if (count) {
+    if (out.length > count) out.length = count;
+    else while (out.length < count) out.push('');
+  }
+  return out;
 }
 // Last code point of a string (handles an astral char at the end).
 function lastCodePoint(s) {
@@ -478,6 +490,9 @@ function linkInText(text, links) {
 }
 
 function maskSrc(s, links) {
+  // Fast path: nothing to mask (no link/code/html/escape to hide from
+  // the emphasis scanner) — the masked source is the source itself.
+  if (!s.includes('[') && !s.includes('`') && !s.includes('<') && !s.includes('\\')) return s;
   let masked = s;
   // 1. Defined reflinks are flattened; a candidate whose text already holds
   // a link is not a link, so only the links it holds (and its ref) are masked.
